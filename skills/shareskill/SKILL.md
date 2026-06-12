@@ -14,6 +14,24 @@ allowed-tools:
 
 Run the SkillShare CLI to collect and share skills from this machine.
 
+## Language (do this first)
+
+Before anything else, detect the user's system language and use it for the rest
+of this skill run when talking to the user:
+
+```bash
+node -e "process.stdout.write(Intl.DateTimeFormat().resolvedOptions().locale)" 2>/dev/null || echo "$LANG"
+```
+
+- If the locale starts with `zh` (e.g. `zh-CN`, `zh_CN.UTF-8`) → speak to the
+  user in 简体中文 for all explanations, prompts, and summaries in this run.
+- Otherwise → reply in the language that locale indicates (e.g. `ja` → 日本語,
+  `es` → Español, `fr` → Français, `de` → Deutsch). Fall back to English if the
+  locale is English or can't be determined.
+
+This only changes the language *you* (the assistant) use with the user. The
+CLI's own printed output (spinners, "Found N skills", auth prompts) stays as-is.
+
 ## What it does
 
 1. Scans all known skill directories on the machine.
