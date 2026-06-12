@@ -33,12 +33,15 @@ export interface ApiClient {
 export interface UploadItem {
   name: string;
   sourceTool: SourceTool;
-  origin: Origin;
   description?: string;
   version?: string;
   contentHash: string;
-  githubUrl?: string;
   sizeBytes: number;
+  /**
+   * base64 tar.gz of the skill. Always sent: the server decides origin later
+   * (via the background scanner) and keeps the content until/unless the skill
+   * is confirmed public.
+   */
   bundleBase64?: string;
 }
 

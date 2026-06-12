@@ -4,7 +4,6 @@ import qrcode from "qrcode-terminal";
 import {
   scanAll,
   formatSize,
-  originLabel,
   packSkillBase64,
   LARGE_SKILL_WARN_BYTES,
   type ClassifiedSkill,
@@ -50,18 +49,24 @@ export async function shareCommand(): Promise<void> {
 
   const classified: ClassifiedSkill[] = scanned.map((s) => {
     const d = byHash.get(s.contentHash);
-    const origin: Origin = d?.origin ?? "unknown";
+    // The server only ever confirms `public`. Anything it doesn't yet know
+    // about comes back `unknown`, which we present to the user as "original"
+    // (their own work) — the background scanner may reclassify it later.
+    const origin: Origin = d?.origin === "public" ? "public" : "unknown";
     return {
       ...s,
       origin,
       githubUrl: d?.githubUrl,
-      originLabel: originLabel(origin, s.sourceTool),
+      originLabel:
+        origin === "public"
+          ? "✅ safe — already public, free to share"
+          : `★ original — not on the server yet, treated as yours`,
     };
   });
   if (detections.length) spin.stop("Origin check complete.");
 
-  // 3. Sort: originals first (most worth sharing), then unknown, then public.
-  const rank: Record<Origin, number> = { original: 0, unknown: 1, public: 2 };
+  // 3. Sort: likely-originals first (most worth sharing), then public.
+  const rank: Record<Origin, number> = { original: 0, unknown: 0, public: 1 };
   classified.sort((a, b) => {
     const r = rank[a.origin] - rank[b.origin];
     return r !== 0 ? r : a.name.localeCompare(b.name);
@@ -70,7 +75,7 @@ export async function shareCommand(): Promise<void> {
   // 4. Interactive multi-select
   const options = classified.map((s) => ({
     value: s.contentHash,
-    label: `${s.origin === "original" ? pc.yellow("★ ") : ""}${pc.bold(s.name)} ${pc.dim(`(${s.sourceTool}, ${formatSize(s.sizeBytes)})`)}`,
+    label: `${s.origin !== "public" ? pc.yellow("★ ") : ""}${pc.bold(s.name)} ${pc.dim(`(${s.sourceTool}, ${formatSize(s.sizeBytes)})`)}`,
     hint: s.originLabel,
   }));
 
@@ -87,9 +92,9 @@ export async function shareCommand(): Promise<void> {
   const chosenHashes = new Set(selected as string[]);
   const chosen = classified.filter((s) => chosenHashes.has(s.contentHash));
 
-  // Warn on large originals before upload.
+  // Warn on large skills before upload (anything we'll send content for).
   for (const s of chosen) {
-    if (s.origin === "original" && s.sizeBytes > LARGE_SKILL_WARN_BYTES) {
+    if (s.origin !== "public" && s.sizeBytes > LARGE_SKILL_WARN_BYTES) {
       const go = await p.confirm({
         message: `"${s.name}" is ${formatSize(s.sizeBytes)}. Upload anyway?`,
       });
@@ -107,21 +112,21 @@ export async function shareCommand(): Promise<void> {
   // 5. Auth (only needed once we know we're uploading)
   config = await ensureAuth(config, api);
 
-  // 6. Build upload payload — bundle content only for originals.
+  // 6. Build upload payload. We send the content bundle for everything the
+  // server hasn't already confirmed public — the server decides origin later
+  // via the background scanner and keeps content only while needed.
   spin.start("Preparing upload…");
   const items: UploadItem[] = [];
   for (const s of finalChosen) {
     const item: UploadItem = {
       name: s.name,
       sourceTool: s.sourceTool,
-      origin: s.origin === "unknown" ? "original" : s.origin,
       description: s.description,
       version: s.version,
       contentHash: s.contentHash,
-      githubUrl: s.githubUrl,
       sizeBytes: s.sizeBytes,
     };
-    if (item.origin === "original") {
+    if (s.origin !== "public") {
       const { base64, byteSize } = await packSkillBase64(s.path);
       item.bundleBase64 = base64;
       item.sizeBytes = byteSize;
@@ -138,7 +143,9 @@ export async function shareCommand(): Promise<void> {
   // 8. Show results with QR for the first link.
   for (const r of shared) {
     const tag =
-      r.origin === "original" ? pc.yellow("★ original") : pc.green("✓ public");
+      r.origin === "public"
+        ? pc.green("✓ public")
+        : pc.yellow("★ pending review");
     p.log.success(`${pc.bold(r.name)} ${tag}\n  ${pc.cyan(r.url)}`);
   }
   if (shared[0]) {
