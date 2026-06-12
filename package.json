@@ -1,0 +1,21 @@
+{
+  "name": "skillshare",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Collect, detect, and share your AI coding skills via short links — open-source CLI",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "pnpm@9.12.0",
+  "scripts": {
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "cli": "pnpm --filter @skillshare/cli start"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3",
+    "@types/node": "^22.7.5",
+    "tsx": "^4.19.1"
+  }
+}
