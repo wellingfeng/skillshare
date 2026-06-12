@@ -4,10 +4,21 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { IGNORED_DIRS } from "./fingerprint.js";
 
-/** Skills larger than this should warn the user before upload (50 MB). */
-export const LARGE_SKILL_WARN_BYTES = 50 * 1024 * 1024;
-/** Hard cap on bundle size for upload (100 MB). */
-export const MAX_BUNDLE_BYTES = 100 * 1024 * 1024;
+/**
+ * Per-skill compressed-bundle size limits, by account plan. The limit applies
+ * to the gzipped .tar.gz (the actual stored/transferred size), not the
+ * uncompressed directory.
+ */
+export const FREE_MAX_BUNDLE_BYTES = 20 * 1024 * 1024; // 20 MB (free tier)
+export const PRO_MAX_BUNDLE_BYTES = 200 * 1024 * 1024; // 200 MB (paid tier)
+
+/** Account plans that affect upload limits. */
+export type Plan = "free" | "pro";
+
+/** Max compressed bundle size (bytes) allowed for a given plan. */
+export function planBundleLimit(plan: Plan): number {
+  return plan === "pro" ? PRO_MAX_BUNDLE_BYTES : FREE_MAX_BUNDLE_BYTES;
+}
 
 /**
  * Pack a skill directory into a gzipped tar, excluding ignored paths

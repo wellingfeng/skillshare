@@ -5,7 +5,7 @@ import {
   scanAll,
   formatSize,
   packSkillBase64,
-  LARGE_SKILL_WARN_BYTES,
+  FREE_MAX_BUNDLE_BYTES,
   type ClassifiedSkill,
   type Origin,
 } from "@skillshare/core";
@@ -92,20 +92,9 @@ export async function shareCommand(): Promise<void> {
   const chosenHashes = new Set(selected as string[]);
   const chosen = classified.filter((s) => chosenHashes.has(s.contentHash));
 
-  // Warn on large skills before upload (anything we'll send content for).
-  for (const s of chosen) {
-    if (s.origin !== "public" && s.sizeBytes > LARGE_SKILL_WARN_BYTES) {
-      const go = await p.confirm({
-        message: `"${s.name}" is ${formatSize(s.sizeBytes)}. Upload anyway?`,
-      });
-      if (p.isCancel(go) || !go) {
-        chosenHashes.delete(s.contentHash);
-      }
-    }
-  }
   const finalChosen = chosen.filter((s) => chosenHashes.has(s.contentHash));
   if (finalChosen.length === 0) {
-    p.outro("Nothing to upload.");
+    p.outro("Nothing selected.");
     return;
   }
 
@@ -114,9 +103,12 @@ export async function shareCommand(): Promise<void> {
 
   // 6. Build upload payload. We send the content bundle for everything the
   // server hasn't already confirmed public — the server decides origin later
-  // via the background scanner and keeps content only while needed.
+  // via the background scanner and keeps content only while needed. The
+  // compressed bundle is checked against the free-tier limit; oversize skills
+  // are flagged here and the server enforces the real per-plan limit (402).
   spin.start("Preparing upload…");
   const items: UploadItem[] = [];
+  const oversize: string[] = [];
   for (const s of finalChosen) {
     const item: UploadItem = {
       name: s.name,
@@ -130,14 +122,38 @@ export async function shareCommand(): Promise<void> {
       const { base64, byteSize } = await packSkillBase64(s.path);
       item.bundleBase64 = base64;
       item.sizeBytes = byteSize;
+      if (byteSize > FREE_MAX_BUNDLE_BYTES) {
+        oversize.push(`${s.name} (${formatSize(byteSize)})`);
+      }
     }
     items.push(item);
   }
   spin.stop("Upload prepared.");
 
+  if (oversize.length > 0) {
+    p.log.warn(
+      `These exceed the free ${formatSize(FREE_MAX_BUNDLE_BYTES)} limit and need a Pro plan:\n  ${oversize.join("\n  ")}`,
+    );
+  }
+
   // 7. Upload
   spin.start("Uploading…");
-  const { shared } = await api.upload(config.token!, items);
+  let shared;
+  try {
+    ({ shared } = await api.upload(config.token!, items));
+  } catch (err) {
+    spin.stop("Upload failed.");
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes("402") || /too large|limit/i.test(msg)) {
+      p.log.error(
+        `A skill is over your plan's size limit.\n${msg}\nUpgrade to Pro for larger skills: ${config.baseUrl}/pricing`,
+      );
+    } else {
+      p.log.error(msg);
+    }
+    p.outro("Nothing shared.");
+    return;
+  }
   spin.stop(`Shared ${pc.bold(String(shared.length))} skills!`);
 
   // 8. Show results with QR for the first link.
